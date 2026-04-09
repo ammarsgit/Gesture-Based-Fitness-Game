@@ -1,0 +1,62 @@
+PROJECT SCOPE: Pose Detection + Exercise Recognition
+
+Owner:
+AMMAR
+
+Purpose:
+Build the core computer vision and exercise recognition system that reads the user's body movement from the camera, detects exercise form, and counts valid repetitions in real time.
+
+Main Goal:
+Create a reliable AI module that can recognize push-ups and squats, decide whether the form is acceptable, and send clean rep events to the game system.
+
+Core Responsibilities:
+- Set up camera input and real-time video capture.
+- Integrate pose tracking using a tool such as MediaPipe.
+- Extract body landmarks needed for exercise analysis.
+- Design push-up detection logic.
+- Design squat detection logic.
+- Count repetitions accurately.
+- Validate form as good or bad using angle checks, thresholds, and movement states.
+- Reduce false positives caused by noisy movement or unstable tracking.
+
+Expected Deliverables:
+- Working camera pipeline.
+- Pose landmark detection running in real time.
+- Push-up recognition module.
+- Squat recognition module.
+- Rep counting system.
+- Form validation rules for each exercise.
+- Clean output events for other modules, such as: pushup_rep, squat_rep, bad_form, no_person_detected.
+
+Suggested Inputs and Outputs:
+Input:
+- Webcam frames.
+
+Output:
+- Exercise type detected.
+- Rep count updates.
+- Form quality feedback.
+- Confidence or tracking status.
+
+Dependencies:
+- Webcam access.
+- Pose tracking library.
+- Enough lighting and camera placement for testing.
+- Clear API or message format shared with the integration owner.
+
+Constraints and Risks:
+- Real-time performance is difficult to maintain.
+- Pose landmarks may be noisy or missing.
+- Different body sizes, clothing, and camera angles can affect accuracy.
+- Threshold tuning will likely require repeated testing.
+
+Definition of Done:
+- System can detect at least push-ups and squats from live camera input.
+- Rep count is reasonably stable during a short demo.
+- Bad form can be flagged with visible logic behind it.
+- Output can be consumed by the game logic without manual fixes.
+
+Notes for Independent Work:
+- Keep this module separate from UI and gameplay.
+- Expose a simple interface so teammates can test without understanding the full vision pipeline.
+- Log useful debug data during development to speed up threshold tuning.

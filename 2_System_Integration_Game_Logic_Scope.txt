@@ -1,0 +1,60 @@
+PROJECT SCOPE: System Integration + Game Logic
+
+Owner:
+MANAR
+
+Purpose:
+Connect the exercise detection system to the game so that physical movement causes game actions in a responsive, consistent way.
+
+Main Goal:
+Build the gameplay layer that receives exercise events and turns them into meaningful in-game actions such as jumping, boosting, scoring, and progression.
+
+Core Responsibilities:
+- Connect the pose and exercise detection outputs to the game loop.
+- Define how each exercise maps to game actions.
+- Implement state management for gameplay.
+- Prevent accidental triggers, duplicate reps, or spam inputs.
+- Handle edge cases such as lost tracking, delayed detection, and incomplete reps.
+- Keep the interaction smooth enough for a live demo.
+
+Exercise-to-Game Mapping:
+- Push-up -> boost
+- Squat -> jump
+
+Expected Deliverables:
+- A clear interface between AI detection and the game system.
+- Game logic that reacts to rep events.
+- Rules for cooldowns, valid timing, and anti-spam behavior.
+- Scoring or progress logic tied to exercise input.
+- A stable game loop for demo use.
+
+Suggested Inputs and Outputs:
+Input:
+- Rep events and feedback signals from the detection module.
+
+Output:
+- Character actions.
+- Score updates.
+- Progress updates.
+- State changes such as paused, active, failed, or completed.
+
+Dependencies:
+- Clean event data from the pose detection module.
+- Agreement on event names and timing expectations.
+- Basic UI hooks for score and action feedback.
+
+Constraints and Risks:
+- If timing feels delayed, the whole system will feel broken.
+- If duplicate reps are not filtered, gameplay will be unfair or chaotic.
+- Integration bugs may appear even when each module works on its own.
+
+Definition of Done:
+- Exercise events trigger the correct game actions.
+- The game responds consistently during a short live session.
+- Missed reps and repeated spam inputs are handled reasonably.
+- The system can run end-to-end with the detection module and UI feedback module.
+
+Notes for Independent Work:
+- Treat the detection system like an external input source.
+- Build with mock exercise events first so progress does not depend on the CV pipeline being complete.
+- Keep game rules simple and demo-friendly before adding extra features.

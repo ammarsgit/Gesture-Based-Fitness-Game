@@ -1,0 +1,53 @@
+PROJECT SCOPE: Evaluation + Testing + Presentation
+
+Owner:
+Organized / analytical person
+
+Purpose:
+Validate the project with simple user testing, collect evidence for improvement, and prepare a clear presentation and demo plan.
+
+Main Goal:
+Make sure the team can show that the system was tested, improved, and presented in a structured and credible way.
+
+Core Responsibilities:
+- Plan and run user testing with a small group.
+- Collect feedback about usability, confusion, and system accuracy.
+- Record issues, patterns, and improvement ideas.
+- Summarize findings for the report or presentation.
+- Build the presentation story from problem to solution to results.
+- Prepare demo flow, backup plan, and fallback video.
+
+Suggested Evaluation Questions:
+- Was the game easy to understand?
+- Did the system count reps correctly?
+- Was the feedback clear while moving?
+- What felt confusing or frustrating?
+
+Expected Deliverables:
+- Simple testing plan.
+- User feedback notes or survey results.
+- List of issues and suggested improvements.
+- Presentation outline.
+- Demo script.
+- Backup recording in case live demo fails.
+
+Dependencies:
+- A testable prototype from the other team members.
+- Agreement on what success means for the demo.
+- Access to presentation materials and result summaries.
+
+Constraints and Risks:
+- Teams often leave testing too late.
+- Without structured feedback, reflection becomes weak.
+- A live demo can fail, so backup preparation is necessary.
+
+Definition of Done:
+- At least a small round of user testing is completed.
+- Feedback is summarized into clear findings.
+- Improvements or future fixes are identified.
+- Presentation and demo plan are ready before final delivery.
+
+Notes for Independent Work:
+- Start building test questions and the presentation outline early.
+- Track evidence continuously instead of waiting until the end.
+- Focus on clarity, timing, and recovery planning for the final demo.

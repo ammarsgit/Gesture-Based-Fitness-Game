@@ -1,0 +1,59 @@
+PROJECT SCOPE: UI/UX + Feedback System
+
+Owner:
+Design-focused builder
+
+Purpose:
+Design and build the feedback layer that tells the player what the system is seeing, whether reps are counted, and how they are performing during the game.
+
+Main Goal:
+Create a clear, low-distraction interface that gives immediate visual or audio feedback while the user is exercising.
+
+Core Responsibilities:
+- Show when a rep has been counted.
+- Show when form is incorrect.
+- Display score, progress, and status clearly.
+- Add rewards or motivational feedback using visuals, sound, or animation.
+- Reduce cognitive load so the player can understand the system while moving.
+- Support the overall HCI quality of the project.
+
+Expected Deliverables:
+- On-screen feedback for counted reps.
+- On-screen warnings for bad form or tracking loss.
+- Score and progress display.
+- Audio or visual reward cues.
+- A layout that remains readable during movement.
+
+Suggested Inputs and Outputs:
+Input:
+- Rep count updates.
+- Bad form signals.
+- Game state changes.
+- Score and progress data.
+
+Output:
+- Visible status messages.
+- Visual indicators.
+- Audio feedback if used.
+- Improved usability during the demo.
+
+Dependencies:
+- Event hooks from the detection and game logic modules.
+- Agreement on what messages must appear and when.
+- Access to the game screen or prototype interface.
+
+Constraints and Risks:
+- Too much feedback can overwhelm the player.
+- Delayed or unclear feedback can make users distrust the system.
+- The interface must stay readable while the person is physically active.
+
+Definition of Done:
+- Users can tell when reps are counted.
+- Users can understand when their form is wrong.
+- Core score and progress information is always visible.
+- The interface supports the demo instead of distracting from it.
+
+Notes for Independent Work:
+- Focus on clarity first, styling second.
+- Prototype the feedback flow with sample events even before full integration.
+- Document what each message means so teammates can trigger it correctly.
