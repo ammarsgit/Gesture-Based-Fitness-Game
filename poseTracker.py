@@ -7,8 +7,12 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from exercise_detection import ExerciseDetector
+from game_logic import handle_event
+
 
 windowName = "Gesture Fitness Game"
+poseLandmark = mp.solutions.pose.PoseLandmark
 modelsDir = Path(__file__).resolve().parent / "models"
 modelQuality = "lite"
 modelPath = modelsDir / f"pose_landmarker_{modelQuality}.task"
@@ -20,20 +24,20 @@ inferenceWidth = 640
 inferenceHeight = 360
 inferenceStride = 2
 fpsSmoothing = 0.2
-poseConnections = vision.PoseLandmarksConnections.POSE_LANDMARKS
+poseConnections = mp.solutions.pose.POSE_CONNECTIONS
 keyJoints = [
-	vision.PoseLandmark.LEFT_SHOULDER,
-	vision.PoseLandmark.RIGHT_SHOULDER,
-	vision.PoseLandmark.LEFT_ELBOW,
-	vision.PoseLandmark.RIGHT_ELBOW,
-	vision.PoseLandmark.LEFT_WRIST,
-	vision.PoseLandmark.RIGHT_WRIST,
-	vision.PoseLandmark.LEFT_KNEE,
-	vision.PoseLandmark.RIGHT_KNEE,
-	vision.PoseLandmark.LEFT_ANKLE,
-	vision.PoseLandmark.RIGHT_ANKLE,
-	vision.PoseLandmark.LEFT_FOOT_INDEX,
-	vision.PoseLandmark.RIGHT_FOOT_INDEX,
+	poseLandmark.LEFT_SHOULDER,
+	poseLandmark.RIGHT_SHOULDER,
+	poseLandmark.LEFT_ELBOW,
+	poseLandmark.RIGHT_ELBOW,
+	poseLandmark.LEFT_WRIST,
+	poseLandmark.RIGHT_WRIST,
+	poseLandmark.LEFT_KNEE,
+	poseLandmark.RIGHT_KNEE,
+	poseLandmark.LEFT_ANKLE,
+	poseLandmark.RIGHT_ANKLE,
+	poseLandmark.LEFT_FOOT_INDEX,
+	poseLandmark.RIGHT_FOOT_INDEX,
 ]
 
 
@@ -92,8 +96,8 @@ def drawPose(frame, landmarks):
 	height, width, _ = frame.shape
 
 	for connection in poseConnections:
-		start_landmark = landmarks[connection.start]
-		end_landmark = landmarks[connection.end]
+		start_landmark = landmarks[connection[0]]
+		end_landmark = landmarks[connection[1]]
 
 		start_point = (int(start_landmark.x * width), int(start_landmark.y * height))
 		end_point = (int(end_landmark.x * width), int(end_landmark.y * height))
@@ -157,7 +161,7 @@ def updateSmoothedFps(smoothedFps, currentTime, previousTime):
 	return (1 - fpsSmoothing) * smoothedFps + fpsSmoothing * instantFps
 
 
-def drawHud(frame, statusText, statusColor, fps):
+def drawHud(frame, statusText, statusColor, fps, exerciseText, eventText):
 	frameHeight, frameWidth = frame.shape[:2]
 	marginX = max(20, frameWidth // 40)
 	marginY = max(40, frameHeight // 18)
@@ -185,11 +189,32 @@ def drawHud(frame, statusText, statusColor, fps):
 		lineThickness,
 		cv2.LINE_AA,
 	)
+	cv2.putText(
+		frame,
+		exerciseText,
+		(marginX, marginY + lineGap * 2),
+		cv2.FONT_HERSHEY_SIMPLEX,
+		fontScale * 0.65,
+		(255, 255, 255),
+		max(1, lineThickness - 1),
+		cv2.LINE_AA,
+	)
+	if eventText:
+		cv2.putText(
+			frame,
+			eventText,
+			(marginX, marginY + lineGap * 3),
+			cv2.FONT_HERSHEY_SIMPLEX,
+			fontScale * 0.7,
+			(0, 200, 255),
+			max(1, lineThickness - 1),
+			cv2.LINE_AA,
+		)
 
 
-def showFrame(frame, statusText, statusColor, fps):
+def showFrame(frame, statusText, statusColor, fps, exerciseText, eventText):
 	displayFrame = fitFrameToWindow(frame)
-	drawHud(displayFrame, statusText, statusColor, fps)
+	drawHud(displayFrame, statusText, statusColor, fps, exerciseText, eventText)
 	cv2.imshow(windowName, displayFrame)
 	key = cv2.waitKey(1) & 0xFF
 	return key
@@ -211,6 +236,9 @@ def main():
 	smoothedFps = 0.0
 	frameIndex = 0
 	lastResult = None
+	exerciseDetector = ExerciseDetector()
+	lastEventText = ""
+	lastEventTime = 0.0
 
 	with createPoseLandmarker() as pose:
 		while True:
@@ -225,16 +253,28 @@ def main():
 
 			result = lastResult
 			statusText, statusColor, landmarks = getStatus(result)
+			exerciseText = exerciseDetector.last_debug_text
 
 			if landmarks is not None:
 				drawPose(frame, landmarks)
+				for event in exerciseDetector.update(landmarks):
+					handle_event(event)
+					label = "Push-up" if event["type"] == "pushup" else "Squat"
+					lastEventText = f"Detected {label} ({event['confidence']:.2f})"
+					lastEventTime = time.perf_counter()
+				exerciseText = exerciseDetector.last_debug_text
+			else:
+				exerciseDetector.update(None)
+				exerciseText = exerciseDetector.last_debug_text
 
 			currentTime = time.perf_counter()
 			smoothedFps = updateSmoothedFps(smoothedFps, currentTime, previousTime)
 			previousTime = currentTime
 			frameIndex += 1
+			if currentTime - lastEventTime > 1.5:
+				lastEventText = ""
 
-			key = showFrame(frame, statusText, statusColor, smoothedFps)
+			key = showFrame(frame, statusText, statusColor, smoothedFps, exerciseText, lastEventText)
 			if key == ord("f"):
 				isFullscreen = not isFullscreen
 				setFullscreen(isFullscreen)

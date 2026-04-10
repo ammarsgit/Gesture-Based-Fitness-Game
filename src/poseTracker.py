@@ -9,6 +9,7 @@ from mediapipe.tasks.python import vision
 
 
 windowName = "Gesture Fitness Game"
+poseLandmark = mp.solutions.pose.PoseLandmark
 modelsDir = Path(__file__).resolve().parent.parent / "models"
 modelQuality = "lite"
 modelPath = modelsDir / f"pose_landmarker_{modelQuality}.task"
@@ -20,20 +21,20 @@ inferenceWidth = 640
 inferenceHeight = 360
 inferenceStride = 2
 fpsSmoothing = 0.2
-poseConnections = vision.PoseLandmarksConnections.POSE_LANDMARKS
+poseConnections = mp.solutions.pose.POSE_CONNECTIONS
 keyJoints = [
-	vision.PoseLandmark.LEFT_SHOULDER,
-	vision.PoseLandmark.RIGHT_SHOULDER,
-	vision.PoseLandmark.LEFT_ELBOW,
-	vision.PoseLandmark.RIGHT_ELBOW,
-	vision.PoseLandmark.LEFT_WRIST,
-	vision.PoseLandmark.RIGHT_WRIST,
-	vision.PoseLandmark.LEFT_KNEE,
-	vision.PoseLandmark.RIGHT_KNEE,
-	vision.PoseLandmark.LEFT_ANKLE,
-	vision.PoseLandmark.RIGHT_ANKLE,
-	vision.PoseLandmark.LEFT_FOOT_INDEX,
-	vision.PoseLandmark.RIGHT_FOOT_INDEX,
+	poseLandmark.LEFT_SHOULDER,
+	poseLandmark.RIGHT_SHOULDER,
+	poseLandmark.LEFT_ELBOW,
+	poseLandmark.RIGHT_ELBOW,
+	poseLandmark.LEFT_WRIST,
+	poseLandmark.RIGHT_WRIST,
+	poseLandmark.LEFT_KNEE,
+	poseLandmark.RIGHT_KNEE,
+	poseLandmark.LEFT_ANKLE,
+	poseLandmark.RIGHT_ANKLE,
+	poseLandmark.LEFT_FOOT_INDEX,
+	poseLandmark.RIGHT_FOOT_INDEX,
 ]
 
 
@@ -92,8 +93,8 @@ def drawPose(frame, landmarks):
 	height, width, _ = frame.shape
 
 	for connection in poseConnections:
-		start_landmark = landmarks[connection.start]
-		end_landmark = landmarks[connection.end]
+		start_landmark = landmarks[connection[0]]
+		end_landmark = landmarks[connection[1]]
 
 		start_point = (int(start_landmark.x * width), int(start_landmark.y * height))
 		end_point = (int(end_landmark.x * width), int(end_landmark.y * height))

@@ -1,12 +1,13 @@
 System Integration + Game Logic (Manar)
 
 This part of the project contains the basic foundation needed for the full webcam-based exercise detection system. 
-These files are not the final gameplay system yet, they are the required components that will connect Ammar’s pose detection to the game actions once his exercise detection code is added.
+These files now include the first full connection from live pose tracking to exercise events and game actions.
 
 Files Included:
 - game_logic.py
 - mock_events.py
 - poseTracker.py
+- exercise_detection.py
 
 Note:
 - requirements.txt was created by Ammar and already exists in the repository.
@@ -30,15 +31,27 @@ What Each File Does:
 
 3. poseTracker.py
    Working pose tracking script using MediaPipe.
-   This script currently shows live pose tracking with the webcam.
-   Once Ammar uploads his exercise detection code, it will call:
+   This script now shows live pose tracking with the webcam and sends detected rep events into the game logic.
+   It calls:
        handle_event({"type": "squat", "confidence": value})
        handle_event({"type": "pushup", "confidence": value})
-   This will allow full end-to-end testing with the webcam.
+   That means webcam -> detection -> game action is now connected in the main tracker.
+
+4. exercise_detection.py
+   Simple rep-detection module.
+   It uses pose landmarks to estimate:
+   - squat reps from knee angle changes
+   - push-up reps from elbow angle changes and a basic horizontal-body check
+   It sends event dictionaries that match the format expected by game_logic.py.
 
 Current Status:
 - Webcam pose tracking works
 - Game logic foundation is complete
 - Cooldowns and anti-spam logic are implemented
 - Mock testing system works
-- Waiting for Ammar’s exercise detection module to enable full webcam-based gameplay
+- Exercise detection is connected in the main tracker
+- Live webcam detection can now trigger jump and boost actions through handle_event(...)
+
+Notes:
+- The current detector is intentionally simple and threshold-based so the team has a working end-to-end baseline.
+- Thresholds will likely need tuning with real camera testing for different users and camera angles.
