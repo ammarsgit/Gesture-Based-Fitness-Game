@@ -10,13 +10,14 @@ SQUAT_COOLDOWN = 0.8
 PUSHUP_COOLDOWN = 1.0
 PLANK_COOLDOWN = 2.0
 SHOULDER_TAP_COOLDOWN = 0.4
+MIN_EVENT_CONFIDENCE = 0.55
 
 
 def handle_event(event):
 	global last_squat_time, last_pushup_time, last_plank_time, last_shoulder_tap_time
 	now = time.time()
 
-	if event.get("confidence", 0) < 0.7:
+	if event.get("confidence", 0) < MIN_EVENT_CONFIDENCE:
 		print(f"IGNORED low confidence {event['type']} ({event['confidence']:.2f})")
 		return
 
