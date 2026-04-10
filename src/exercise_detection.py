@@ -1,11 +1,10 @@
 import math
 import time
 
-import mediapipe as mp
 from mediapipe.tasks.python import vision
 
 
-poseLandmark = mp.solutions.pose.PoseLandmark
+poseLandmark = vision.PoseLandmark
 
 
 def clamp(value, minimum, maximum):
