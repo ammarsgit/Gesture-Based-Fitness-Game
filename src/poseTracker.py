@@ -1,4 +1,4 @@
-import time
+﻿import time
 from pathlib import Path
 
 import cv2
@@ -31,7 +31,7 @@ cameraWidth = 960
 cameraHeight = 540
 inferenceWidth = 640
 inferenceHeight = 360
-inferenceStride = 2
+inferenceStride = 1
 fpsSmoothing = 0.2
 poseConnections = vision.PoseLandmarksConnections.POSE_LANDMARKS
 keyJoints = [
@@ -129,9 +129,9 @@ def createPoseLandmarker():
 		base_options=base_options,
 		running_mode=vision.RunningMode.VIDEO,
 		num_poses=1,
-		min_pose_detection_confidence=0.5,
-		min_pose_presence_confidence=0.5,
-		min_tracking_confidence=0.5,
+		min_pose_detection_confidence=0.6,
+		min_pose_presence_confidence=0.6,
+		min_tracking_confidence=0.6,
 	)
 	return vision.PoseLandmarker.create_from_options(options)
 
@@ -272,13 +272,17 @@ def main():
 						label = "Push-up"
 					elif event["type"] == "squat":
 						label = "Squat"
-					elif event["type"] == "plank":
-						label = "Plank"
 					else:
-						label = "Shoulder Tap"
+						label = event["type"].replace("_", " ").title()
 					lastEventText = f"Detected {label} ({event['confidence']:.2f})"
 					lastEventTime = time.perf_counter()
 				exerciseText = exerciseDetector.last_debug_text
+				if exerciseDetector.is_calibrating:
+					progress = int(exerciseDetector.calibration_progress * 100)
+					statusText = f"Calibrating ({progress}%)"
+					statusColor = (0, 200, 255)
+				elif statusText == "Person Detected":
+					statusText = "Person Detected - Squat/Push-up Ready"
 			else:
 				exerciseDetector.update(None)
 				exerciseText = exerciseDetector.last_debug_text
@@ -296,6 +300,8 @@ def main():
 				setFullscreen(isFullscreen)
 			elif key == ord("c"):
 				displayMode = "contain" if displayMode == "cover" else "cover"
+			elif key == ord("r"):
+				exerciseDetector.restart_calibration()
 			elif key == ord("q"):
 				break
 

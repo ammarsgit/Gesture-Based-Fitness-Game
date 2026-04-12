@@ -11,21 +11,14 @@ def clamp(value, minimum, maximum):
 	return max(minimum, min(maximum, value))
 
 
-SQUAT_DOWN_ANGLE = 120
-SQUAT_UP_ANGLE = 145
-PUSHUP_DOWN_ANGLE = 115
-PUSHUP_UP_ANGLE = 135
-PUSHUP_RESET_ANGLE = 120
-PLANK_READY_ELBOW_ANGLE = 140
-PLANK_HOLD_SECONDS = 1.0
-BODY_HORIZONTAL_SHOULDER_HIP_GAP = 0.22
-BODY_HORIZONTAL_HIP_ANKLE_GAP = 0.24
-SHOULDER_TAP_DISTANCE = 0.24
-SHOULDER_TAP_HEIGHT_MARGIN = 0.18
-SHOULDER_TAP_RESET_DISTANCE = 0.28
-SHOULDER_TAP_TOUCH_HOLD_SECONDS = 0.6
-SHOULDER_TAP_HEAD_CLEARANCE = 0.03
-SHOULDER_TAP_SHOULDER_RAISE = 0.18
+ANGLE_EMA_ALPHA = 0.35
+MIN_LANDMARK_CONFIDENCE = 0.5
+CALIBRATION_SECONDS = 3.0
+CALIBRATION_MIN_FRAMES = 30
+INACTIVITY_RESET_SECONDS = 2.5
+SQUAT_REP_COOLDOWN = 0.45
+PUSHUP_REP_COOLDOWN = 0.55
+MIN_BODY_LINE_ANGLE = 145.0
 
 
 def average(values):
@@ -34,6 +27,10 @@ def average(values):
 
 def point_xy(landmark):
 	return landmark.x, landmark.y
+
+
+def point_xyz(landmark):
+	return landmark.x, landmark.y, landmark.z
 
 
 def point_distance(first, second):
@@ -49,81 +46,262 @@ def vertical_angle(upper, lower):
 
 
 def joint_angle(first, middle, last):
-	ax, ay = point_xy(first)
-	bx, by = point_xy(middle)
-	cx, cy = point_xy(last)
+	ax, ay, az = point_xyz(first)
+	bx, by, bz = point_xyz(middle)
+	cx, cy, cz = point_xyz(last)
 
-	first_vector = (ax - bx, ay - by)
-	last_vector = (cx - bx, cy - by)
+	first_vector = (ax - bx, ay - by, az - bz)
+	last_vector = (cx - bx, cy - by, cz - bz)
 
-	first_length = math.hypot(*first_vector)
-	last_length = math.hypot(*last_vector)
+	first_length = math.sqrt(sum(component * component for component in first_vector))
+	last_length = math.sqrt(sum(component * component for component in last_vector))
 	if first_length == 0 or last_length == 0:
 		return 180.0
 
-	dot_product = first_vector[0] * last_vector[0] + first_vector[1] * last_vector[1]
+	dot_product = sum(first_vector[index] * last_vector[index] for index in range(3))
 	cosine = clamp(dot_product / (first_length * last_length), -1.0, 1.0)
 	return math.degrees(math.acos(cosine))
 
 
 class ExerciseDetector:
 	def __init__(self):
-		self.squat_stage = "up"
-		self.pushup_stage = "up"
-		self.plank_stage = "not_ready"
-		self.plank_started_at = None
-		self.left_tap_active = False
-		self.right_tap_active = False
-		self.left_touch_started_at = None
-		self.right_touch_started_at = None
+		self.calibration_started_at = time.perf_counter()
+		self.calibration_progress = 0.0
+		self.is_calibrating = True
+		self.calibration_samples = {
+			"squat_top_knee": [],
+			"pushup_top_elbow": [],
+			"body_line": [],
+		}
+
+		self.squat_stage = "top"
+		self.pushup_stage = "top"
+		self.squat_reached_depth = False
+		self.pushup_reached_depth = False
 		self.deepest_squat_angle = 180.0
 		self.deepest_pushup_angle = 180.0
-		self.last_debug_text = "Exercise: waiting for movement"
+		self.last_rep_times = {"squat": 0.0, "pushup": 0.0}
+		self.last_motion_time = time.perf_counter()
+		self.filtered_angles = {}
+
+		self.squat_down_angle = 120.0
+		self.squat_up_angle = 150.0
+		self.squat_depth_angle = 100.0
+		self.pushup_down_angle = 125.0
+		self.pushup_up_angle = 145.0
+		self.pushup_depth_angle = 105.0
+		self.body_line_min_angle = 160.0
+
+		self.last_debug_text = "Calibration: hold neutral pose"
+
+	def restart_calibration(self):
+		self.calibration_started_at = time.perf_counter()
+		self.calibration_progress = 0.0
+		self.is_calibrating = True
+		self.calibration_samples = {
+			"squat_top_knee": [],
+			"pushup_top_elbow": [],
+			"body_line": [],
+		}
+		self.squat_stage = "top"
+		self.pushup_stage = "top"
+		self.squat_reached_depth = False
+		self.pushup_reached_depth = False
+		self.deepest_squat_angle = 180.0
+		self.deepest_pushup_angle = 180.0
+		self.filtered_angles = {}
+		self.last_motion_time = time.perf_counter()
+		self.last_debug_text = "Calibration: hold neutral pose"
 
 	def update(self, landmarks):
 		if landmarks is None:
 			self.last_debug_text = "Exercise: no landmarks"
 			return []
 
+		if self.is_calibrating:
+			self._update_calibration(landmarks)
+			return []
+
+		if not self._has_quality(landmarks, self._required_landmarks()):
+			self.last_debug_text = "Exercise: low landmark confidence"
+			return []
+
 		events = []
 		squat_event, squat_debug = self._detect_squat(landmarks)
 		pushup_event, pushup_debug = self._detect_pushup(landmarks)
-		plank_event, plank_debug, plank_ready = self._detect_plank(landmarks)
-		shoulder_tap_event, shoulder_tap_debug = self._detect_shoulder_tap(landmarks, plank_ready)
 
 		if squat_event is not None:
 			events.append(squat_event)
 		if pushup_event is not None:
 			events.append(pushup_event)
-		if plank_event is not None:
-			events.append(plank_event)
-		if shoulder_tap_event is not None:
-			events.append(shoulder_tap_event)
 
-		self.last_debug_text = f"{squat_debug} | {pushup_debug} | {plank_debug} | {shoulder_tap_debug}"
+		now = time.perf_counter()
+		if now - self.last_motion_time > INACTIVITY_RESET_SECONDS:
+			self._reset_stages()
+
+		self.last_debug_text = f"{squat_debug} | {pushup_debug}"
 		return events
 
-	def _body_alignment(self, landmarks):
-		shoulder_y = average([
-			landmarks[poseLandmark.LEFT_SHOULDER].y,
-			landmarks[poseLandmark.RIGHT_SHOULDER].y,
-		])
-		hip_y = average([
-			landmarks[poseLandmark.LEFT_HIP].y,
-			landmarks[poseLandmark.RIGHT_HIP].y,
-		])
-		ankle_y = average([
-			landmarks[poseLandmark.LEFT_ANKLE].y,
-			landmarks[poseLandmark.RIGHT_ANKLE].y,
-		])
+	def _required_landmarks(self):
+		return [
+			poseLandmark.LEFT_SHOULDER,
+			poseLandmark.RIGHT_SHOULDER,
+			poseLandmark.LEFT_ELBOW,
+			poseLandmark.RIGHT_ELBOW,
+			poseLandmark.LEFT_WRIST,
+			poseLandmark.RIGHT_WRIST,
+			poseLandmark.LEFT_HIP,
+			poseLandmark.RIGHT_HIP,
+			poseLandmark.LEFT_KNEE,
+			poseLandmark.RIGHT_KNEE,
+			poseLandmark.LEFT_ANKLE,
+			poseLandmark.RIGHT_ANKLE,
+		]
 
-		shoulder_hip_gap = abs(shoulder_y - hip_y)
-		hip_ankle_gap = abs(hip_y - ankle_y)
-		body_is_horizontal = (
-			shoulder_hip_gap < BODY_HORIZONTAL_SHOULDER_HIP_GAP
-			and hip_ankle_gap < BODY_HORIZONTAL_HIP_ANKLE_GAP
+	def _landmark_confidence(self, landmark):
+		visibility = getattr(landmark, "visibility", 1.0)
+		presence = getattr(landmark, "presence", 1.0)
+		return min(visibility, presence)
+
+	def _has_quality(self, landmarks, required):
+		for landmark_index in required:
+			if self._landmark_confidence(landmarks[landmark_index]) < MIN_LANDMARK_CONFIDENCE:
+				return False
+		return True
+
+	def _ema(self, key, value):
+		previous = self.filtered_angles.get(key)
+		if previous is None:
+			self.filtered_angles[key] = value
+			return value
+		filtered_value = (1 - ANGLE_EMA_ALPHA) * previous + ANGLE_EMA_ALPHA * value
+		self.filtered_angles[key] = filtered_value
+		return filtered_value
+
+	def _side_score(self, landmarks, side):
+		if side == "left":
+			indices = [
+				poseLandmark.LEFT_SHOULDER,
+				poseLandmark.LEFT_ELBOW,
+				poseLandmark.LEFT_WRIST,
+				poseLandmark.LEFT_HIP,
+				poseLandmark.LEFT_KNEE,
+				poseLandmark.LEFT_ANKLE,
+			]
+		else:
+			indices = [
+				poseLandmark.RIGHT_SHOULDER,
+				poseLandmark.RIGHT_ELBOW,
+				poseLandmark.RIGHT_WRIST,
+				poseLandmark.RIGHT_HIP,
+				poseLandmark.RIGHT_KNEE,
+				poseLandmark.RIGHT_ANKLE,
+			]
+		return average([self._landmark_confidence(landmarks[index]) for index in indices])
+
+	def _active_side(self, landmarks):
+		left_score = self._side_score(landmarks, "left")
+		right_score = self._side_score(landmarks, "right")
+		return "left" if left_score >= right_score else "right"
+
+	def _collect_calibration(self, landmarks):
+		left_knee_angle = joint_angle(
+			landmarks[poseLandmark.LEFT_HIP],
+			landmarks[poseLandmark.LEFT_KNEE],
+			landmarks[poseLandmark.LEFT_ANKLE],
 		)
-		return body_is_horizontal, shoulder_hip_gap, hip_ankle_gap
+		right_knee_angle = joint_angle(
+			landmarks[poseLandmark.RIGHT_HIP],
+			landmarks[poseLandmark.RIGHT_KNEE],
+			landmarks[poseLandmark.RIGHT_ANKLE],
+		)
+		knee_top = average([left_knee_angle, right_knee_angle])
+
+		left_elbow_angle = joint_angle(
+			landmarks[poseLandmark.LEFT_SHOULDER],
+			landmarks[poseLandmark.LEFT_ELBOW],
+			landmarks[poseLandmark.LEFT_WRIST],
+		)
+		right_elbow_angle = joint_angle(
+			landmarks[poseLandmark.RIGHT_SHOULDER],
+			landmarks[poseLandmark.RIGHT_ELBOW],
+			landmarks[poseLandmark.RIGHT_WRIST],
+		)
+		elbow_top = average([left_elbow_angle, right_elbow_angle])
+
+		left_body_line = joint_angle(
+			landmarks[poseLandmark.LEFT_SHOULDER],
+			landmarks[poseLandmark.LEFT_HIP],
+			landmarks[poseLandmark.LEFT_ANKLE],
+		)
+		right_body_line = joint_angle(
+			landmarks[poseLandmark.RIGHT_SHOULDER],
+			landmarks[poseLandmark.RIGHT_HIP],
+			landmarks[poseLandmark.RIGHT_ANKLE],
+		)
+		body_line = average([left_body_line, right_body_line])
+
+		self.calibration_samples["squat_top_knee"].append(knee_top)
+		self.calibration_samples["pushup_top_elbow"].append(elbow_top)
+		self.calibration_samples["body_line"].append(body_line)
+
+	def _finalize_calibration(self):
+		squat_top = average(self.calibration_samples["squat_top_knee"])
+		elbow_top = average(self.calibration_samples["pushup_top_elbow"])
+		body_line = average(self.calibration_samples["body_line"])
+
+		self.squat_down_angle = clamp(squat_top - 50.0, 100.0, 132.0)
+		self.squat_up_angle = clamp(squat_top - 22.0, 135.0, 170.0)
+		self.squat_depth_angle = clamp(squat_top - 78.0, 78.0, 112.0)
+
+		self.pushup_down_angle = clamp(elbow_top - 38.0, 100.0, 132.0)
+		self.pushup_up_angle = clamp(elbow_top - 16.0, 126.0, 170.0)
+		self.pushup_depth_angle = clamp(elbow_top - 58.0, 86.0, 122.0)
+		self.body_line_min_angle = clamp(body_line - 24.0, MIN_BODY_LINE_ANGLE, 174.0)
+
+		self.is_calibrating = False
+		self.calibration_progress = 1.0
+		self.last_debug_text = "Exercise: ready for squat and push-up"
+
+	def _update_calibration(self, landmarks):
+		elapsed = time.perf_counter() - self.calibration_started_at
+		self.calibration_progress = clamp(elapsed / CALIBRATION_SECONDS, 0.0, 1.0)
+
+		if self._has_quality(landmarks, self._required_landmarks()):
+			self._collect_calibration(landmarks)
+
+		sample_count = len(self.calibration_samples["squat_top_knee"])
+		if elapsed >= CALIBRATION_SECONDS and sample_count >= CALIBRATION_MIN_FRAMES:
+			self._finalize_calibration()
+			return
+
+		seconds_left = max(0.0, CALIBRATION_SECONDS - elapsed)
+		self.last_debug_text = f"Calibration: hold still {seconds_left:.1f}s"
+
+	def _reset_stages(self):
+		self.squat_stage = "top"
+		self.pushup_stage = "top"
+		self.squat_reached_depth = False
+		self.pushup_reached_depth = False
+		self.deepest_squat_angle = 180.0
+		self.deepest_pushup_angle = 180.0
+
+	def _body_alignment(self, landmarks, side):
+		if side == "left":
+			shoulder = landmarks[poseLandmark.LEFT_SHOULDER]
+			hip = landmarks[poseLandmark.LEFT_HIP]
+			ankle = landmarks[poseLandmark.LEFT_ANKLE]
+		else:
+			shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
+			hip = landmarks[poseLandmark.RIGHT_HIP]
+			ankle = landmarks[poseLandmark.RIGHT_ANKLE]
+
+		shoulder_hip_gap = abs(shoulder.y - hip.y)
+		hip_ankle_gap = abs(hip.y - ankle.y)
+		body_line_angle = joint_angle(shoulder, hip, ankle)
+		body_is_horizontal = shoulder_hip_gap < 0.24 and hip_ankle_gap < 0.30
+		line_is_strong = body_line_angle > self.body_line_min_angle
+		return body_is_horizontal and line_is_strong, shoulder_hip_gap, hip_ankle_gap, body_line_angle
 
 	def _detect_squat(self, landmarks):
 		left_knee_angle = joint_angle(
@@ -137,178 +315,84 @@ class ExerciseDetector:
 			landmarks[poseLandmark.RIGHT_ANKLE],
 		)
 		knee_angle = average([left_knee_angle, right_knee_angle])
-
-		if self.squat_stage == "up" and knee_angle < SQUAT_DOWN_ANGLE:
-			self.squat_stage = "down"
-			self.deepest_squat_angle = knee_angle
-		elif self.squat_stage == "down":
-			self.deepest_squat_angle = min(self.deepest_squat_angle, knee_angle)
-			if knee_angle > SQUAT_UP_ANGLE:
-				confidence = clamp((175 - self.deepest_squat_angle) / 85, 0.0, 1.0)
-				self.squat_stage = "up"
-				self.deepest_squat_angle = 180.0
-				return {"type": "squat", "confidence": confidence}, f"Squat: rep ({int(knee_angle)} deg)"
-
-		return None, f"Squat: {self.squat_stage} ({int(knee_angle)} deg)"
-
-	def _detect_pushup(self, landmarks):
-		left_elbow_angle = joint_angle(
-			landmarks[poseLandmark.LEFT_SHOULDER],
-			landmarks[poseLandmark.LEFT_ELBOW],
-			landmarks[poseLandmark.LEFT_WRIST],
-		)
-		right_elbow_angle = joint_angle(
-			landmarks[poseLandmark.RIGHT_SHOULDER],
-			landmarks[poseLandmark.RIGHT_ELBOW],
-			landmarks[poseLandmark.RIGHT_WRIST],
-		)
-		elbow_angle = average([left_elbow_angle, right_elbow_angle])
-		body_is_horizontal, shoulder_hip_gap, hip_ankle_gap = self._body_alignment(landmarks)
-
-		if body_is_horizontal and self.pushup_stage == "up" and elbow_angle < PUSHUP_DOWN_ANGLE:
-			self.pushup_stage = "down"
-			self.deepest_pushup_angle = elbow_angle
-		elif self.pushup_stage == "down":
-			self.deepest_pushup_angle = min(self.deepest_pushup_angle, elbow_angle)
-			if elbow_angle > PUSHUP_UP_ANGLE and body_is_horizontal:
-				bend_score = clamp((165 - self.deepest_pushup_angle) / 85, 0.0, 1.0)
-				alignment_score = clamp(
-					1.0 - ((shoulder_hip_gap / BODY_HORIZONTAL_SHOULDER_HIP_GAP) + (hip_ankle_gap / BODY_HORIZONTAL_HIP_ANKLE_GAP)) / 2,
-					0.0,
-					1.0,
-				)
-				confidence = clamp(0.65 * bend_score + 0.35 * alignment_score, 0.0, 1.0)
-				self.pushup_stage = "up"
-				self.deepest_pushup_angle = 180.0
-				return {"type": "pushup", "confidence": confidence}, f"Push-up: rep ({int(elbow_angle)} deg)"
-			if not body_is_horizontal and elbow_angle > PUSHUP_RESET_ANGLE:
-				self.pushup_stage = "up"
-				self.deepest_pushup_angle = 180.0
-
-		mode_text = "ready" if body_is_horizontal else "not ready"
-		return None, f"Push-up: {self.pushup_stage}, {mode_text} ({int(elbow_angle)} deg)"
-
-	def _detect_plank(self, landmarks):
-		left_elbow_angle = joint_angle(
-			landmarks[poseLandmark.LEFT_SHOULDER],
-			landmarks[poseLandmark.LEFT_ELBOW],
-			landmarks[poseLandmark.LEFT_WRIST],
-		)
-		right_elbow_angle = joint_angle(
-			landmarks[poseLandmark.RIGHT_SHOULDER],
-			landmarks[poseLandmark.RIGHT_ELBOW],
-			landmarks[poseLandmark.RIGHT_WRIST],
-		)
-		elbow_angle = average([left_elbow_angle, right_elbow_angle])
-		body_is_horizontal, shoulder_hip_gap, hip_ankle_gap = self._body_alignment(landmarks)
-		in_plank = body_is_horizontal and elbow_angle > PLANK_READY_ELBOW_ANGLE
-
-		if in_plank:
-			if self.plank_started_at is None:
-				self.plank_started_at = time.perf_counter()
-				self.plank_stage = "holding"
-			hold_time = time.perf_counter() - self.plank_started_at
-			if self.plank_stage == "holding" and hold_time >= PLANK_HOLD_SECONDS:
-				alignment_score = clamp(
-					1.0 - ((shoulder_hip_gap / BODY_HORIZONTAL_SHOULDER_HIP_GAP) + (hip_ankle_gap / BODY_HORIZONTAL_HIP_ANKLE_GAP)) / 2,
-					0.0,
-					1.0,
-				)
-				arm_score = clamp((elbow_angle - PLANK_READY_ELBOW_ANGLE) / 25, 0.0, 1.0)
-				confidence = clamp(0.7 * alignment_score + 0.3 * arm_score, 0.0, 1.0)
-				self.plank_stage = "counted"
-				return {"type": "plank", "confidence": confidence}, f"Plank: held {hold_time:.1f}s", True
-			return None, f"Plank: holding {hold_time:.1f}s", True
-
-		self.plank_stage = "not_ready"
-		self.plank_started_at = None
-		self.left_tap_active = False
-		self.right_tap_active = False
-		self.left_touch_started_at = None
-		self.right_touch_started_at = None
-		return None, "Plank: not ready", False
-
-	def _detect_shoulder_tap(self, landmarks, plank_ready):
-		nose = landmarks[poseLandmark.NOSE]
-		left_wrist = landmarks[poseLandmark.LEFT_WRIST]
-		right_wrist = landmarks[poseLandmark.RIGHT_WRIST]
-		left_shoulder = landmarks[poseLandmark.LEFT_SHOULDER]
-		right_shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
-
-		left_same_distance = point_distance(left_wrist, left_shoulder)
-		left_cross_distance = point_distance(left_wrist, right_shoulder)
-		right_same_distance = point_distance(right_wrist, right_shoulder)
-		right_cross_distance = point_distance(right_wrist, left_shoulder)
-		shoulder_width = max(point_distance(left_shoulder, right_shoulder), 1e-6)
-		head_y = min(nose.y, left_shoulder.y, right_shoulder.y)
-
-		left_touching = (
-			min(left_same_distance, left_cross_distance) < SHOULDER_TAP_DISTANCE
-			and left_wrist.y < left_shoulder.y + SHOULDER_TAP_HEIGHT_MARGIN
-		)
-		right_touching = (
-			min(right_same_distance, right_cross_distance) < SHOULDER_TAP_DISTANCE
-			and right_wrist.y < right_shoulder.y + SHOULDER_TAP_HEIGHT_MARGIN
-		)
-		left_arm_up = (
-			left_wrist.y < head_y - SHOULDER_TAP_HEAD_CLEARANCE
-			or left_wrist.y < left_shoulder.y - SHOULDER_TAP_SHOULDER_RAISE
-		)
-		right_arm_up = (
-			right_wrist.y < head_y - SHOULDER_TAP_HEAD_CLEARANCE
-			or right_wrist.y < right_shoulder.y - SHOULDER_TAP_SHOULDER_RAISE
-		)
+		knee_angle = self._ema("squat_knee", average([left_knee_angle, right_knee_angle]))
 
 		now = time.perf_counter()
-		if left_touching:
-			if self.left_touch_started_at is None:
-				self.left_touch_started_at = now
-			self.left_tap_active = True
-		elif self.left_touch_started_at is not None and now - self.left_touch_started_at > SHOULDER_TAP_TOUCH_HOLD_SECONDS and not self.left_tap_active:
-			self.left_touch_started_at = None
+		if self.squat_stage == "top" and knee_angle < self.squat_down_angle:
+			self.squat_stage = "descending"
+			self.squat_reached_depth = False
+			self.deepest_squat_angle = knee_angle
+			self.last_motion_time = now
+		elif self.squat_stage == "descending":
+			self.deepest_squat_angle = min(self.deepest_squat_angle, knee_angle)
+			if knee_angle < self.squat_depth_angle:
+				self.squat_reached_depth = True
+				self.last_motion_time = now
+			if knee_angle > self.squat_up_angle:
+				depth_score = clamp((self.squat_down_angle - self.deepest_squat_angle) / max(self.squat_down_angle - self.squat_depth_angle, 1e-6), 0.0, 1.0)
+				confidence = clamp(0.5 + 0.5 * depth_score, 0.0, 1.0)
+				self.squat_stage = "top"
+				self.deepest_squat_angle = 180.0
+				if self.squat_reached_depth and now - self.last_rep_times["squat"] >= SQUAT_REP_COOLDOWN:
+					self.last_rep_times["squat"] = now
+					self.last_motion_time = now
+					return {"type": "squat", "confidence": confidence}, f"Squat: rep ({int(knee_angle)} deg)"
+				self.squat_reached_depth = False
 
-		if right_touching:
-			if self.right_touch_started_at is None:
-				self.right_touch_started_at = now
-			self.right_tap_active = True
-		elif self.right_touch_started_at is not None and now - self.right_touch_started_at > SHOULDER_TAP_TOUCH_HOLD_SECONDS and not self.right_tap_active:
-			self.right_touch_started_at = None
+		depth_text = "depth" if self.squat_reached_depth else "no depth"
+		return None, f"Squat: {self.squat_stage}, {depth_text} ({int(knee_angle)} deg)"
 
-		if self.left_tap_active and left_arm_up:
-			self.left_tap_active = False
-			self.left_touch_started_at = None
-			confidence = clamp(
-				0.5 * ((SHOULDER_TAP_DISTANCE - min(left_same_distance, left_cross_distance)) / SHOULDER_TAP_DISTANCE)
-				+ 0.5 * max((head_y - left_wrist.y) / 0.25, (left_shoulder.y - left_wrist.y) / 0.30),
-				0.0,
-				1.0,
-			)
-			return {"type": "shoulder_tap", "confidence": confidence}, "Shoulder Tap: left rep"
+	def _detect_pushup(self, landmarks):
+		side = self._active_side(landmarks)
+		left_elbow_angle = joint_angle(
+			landmarks[poseLandmark.LEFT_SHOULDER],
+			landmarks[poseLandmark.LEFT_ELBOW],
+			landmarks[poseLandmark.LEFT_WRIST],
+		)
+		right_elbow_angle = joint_angle(
+			landmarks[poseLandmark.RIGHT_SHOULDER],
+			landmarks[poseLandmark.RIGHT_ELBOW],
+			landmarks[poseLandmark.RIGHT_WRIST],
+		)
 
-		if self.right_tap_active and right_arm_up:
-			self.right_tap_active = False
-			self.right_touch_started_at = None
-			confidence = clamp(
-				0.5 * ((SHOULDER_TAP_DISTANCE - min(right_same_distance, right_cross_distance)) / SHOULDER_TAP_DISTANCE)
-				+ 0.5 * max((head_y - right_wrist.y) / 0.25, (right_shoulder.y - right_wrist.y) / 0.30),
-				0.0,
-				1.0,
-			)
-			return {"type": "shoulder_tap", "confidence": confidence}, "Shoulder Tap: right rep"
+		left_elbow_angle = self._ema("pushup_left_elbow", left_elbow_angle)
+		right_elbow_angle = self._ema("pushup_right_elbow", right_elbow_angle)
+		descent_angle = min(left_elbow_angle, right_elbow_angle)
+		ascent_angle = average([left_elbow_angle, right_elbow_angle])
+		body_is_horizontal, shoulder_hip_gap, hip_ankle_gap, body_line_angle = self._body_alignment(landmarks, side)
 
-		if self.left_tap_active and not left_touching and not left_arm_up and left_same_distance > SHOULDER_TAP_RESET_DISTANCE and left_cross_distance > SHOULDER_TAP_RESET_DISTANCE:
-			self.left_tap_active = False
-			self.left_touch_started_at = None
-		if self.right_tap_active and not right_touching and not right_arm_up and right_same_distance > SHOULDER_TAP_RESET_DISTANCE and right_cross_distance > SHOULDER_TAP_RESET_DISTANCE:
-			self.right_tap_active = False
-			self.right_touch_started_at = None
+		now = time.perf_counter()
+		if body_is_horizontal and self.pushup_stage == "top" and descent_angle < self.pushup_down_angle:
+			self.pushup_stage = "descending"
+			self.pushup_reached_depth = False
+			self.deepest_pushup_angle = descent_angle
+			self.last_motion_time = now
+		elif self.pushup_stage == "descending":
+			self.deepest_pushup_angle = min(self.deepest_pushup_angle, descent_angle)
+			if descent_angle < self.pushup_depth_angle and body_is_horizontal:
+				self.pushup_reached_depth = True
+				self.last_motion_time = now
+			if ascent_angle > self.pushup_up_angle and body_is_horizontal:
+				bend_score = clamp((self.pushup_down_angle - self.deepest_pushup_angle) / max(self.pushup_down_angle - self.pushup_depth_angle, 1e-6), 0.0, 1.0)
+				alignment_score = clamp(
+					1.0 - ((shoulder_hip_gap / 0.24) + (hip_ankle_gap / 0.30)) / 2,
+					0.0,
+					1.0,
+				)
+				line_score = clamp((body_line_angle - self.body_line_min_angle) / 16.0, 0.0, 1.0)
+				confidence = clamp(0.55 * bend_score + 0.25 * alignment_score + 0.20 * line_score, 0.0, 1.0)
+				self.pushup_stage = "top"
+				self.deepest_pushup_angle = 180.0
+				if self.pushup_reached_depth and now - self.last_rep_times["pushup"] >= PUSHUP_REP_COOLDOWN:
+					self.last_rep_times["pushup"] = now
+					self.last_motion_time = now
+					return {"type": "pushup", "confidence": confidence}, f"Push-up: rep ({int(ascent_angle)} deg)"
+				self.pushup_reached_depth = False
+			if not body_is_horizontal and ascent_angle > self.pushup_up_angle:
+				self.pushup_stage = "top"
+				self.deepest_pushup_angle = 180.0
+				self.pushup_reached_depth = False
 
-		if left_touching:
-			return None, "Shoulder Tap: left touch"
-		if right_touching:
-			return None, "Shoulder Tap: right touch"
-		if self.left_tap_active:
-			return None, "Shoulder Tap: raise left arm"
-		if self.right_tap_active:
-			return None, "Shoulder Tap: raise right arm"
-		return None, "Shoulder Tap: touch shoulder then raise arm"
+		mode_text = "ready" if body_is_horizontal else "not ready"
+		depth_text = "depth" if self.pushup_reached_depth else "no depth"
+		return None, f"Push-up: {self.pushup_stage}, {mode_text}, {depth_text} (min {int(descent_angle)} avg {int(ascent_angle)} deg)"
