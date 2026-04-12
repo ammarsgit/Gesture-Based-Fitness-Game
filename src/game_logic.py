@@ -1,34 +1,33 @@
 import time
 
+last_event_times = {}
 
-last_squat_time = 0
-last_pushup_time = 0
-
-SQUAT_COOLDOWN = 0.8
-PUSHUP_COOLDOWN = 1.0
-MIN_EVENT_CONFIDENCE = 0.6
+cooldowns = {
+    "not_in_frame": 1.5,
+    "start_session": 1.0,
+    "step_change": 1.0,
+    "workout_complete": 2.0,
+}
 
 
 def handle_event(event):
-	global last_squat_time, last_pushup_time
-	now = time.time()
+    event_type = event.get("type", "unknown")
+    now = time.time()
 
-	if event.get("confidence", 0) < MIN_EVENT_CONFIDENCE:
-		print(f"IGNORED low confidence {event['type']} ({event['confidence']:.2f})")
-		return
+    last_time = last_event_times.get(event_type, 0.0)
+    cooldown = cooldowns.get(event_type, 0.5)
+    if now - last_time < cooldown:
+        return
 
-	if event["type"] == "squat":
-		if now - last_squat_time > SQUAT_COOLDOWN:
-			print("GAME ACTION: JUMP")
-			last_squat_time = now
-		else:
-			print("IGNORED squat (cooldown)")
+    last_event_times[event_type] = now
 
-	elif event["type"] == "pushup":
-		if now - last_pushup_time > PUSHUP_COOLDOWN:
-			print("GAME ACTION: BOOST")
-			last_pushup_time = now
-		else:
-			print("IGNORED pushup (cooldown)")
-	else:
-		print(f"IGNORED unsupported exercise {event['type']}")
+    if event_type == "not_in_frame":
+        print("EVENT: User not in frame")
+    elif event_type == "start_session":
+        print("EVENT: Session started")
+    elif event_type == "step_change":
+        print("EVENT: Step changed")
+    elif event_type == "workout_complete":
+        print("EVENT: Workout complete")
+    else:
+        print(f"EVENT: {event_type}")
