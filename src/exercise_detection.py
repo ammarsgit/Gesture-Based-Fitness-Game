@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from mediapipe.tasks.python import vision
 
 poseLandmark = vision.PoseLandmark
@@ -18,6 +19,7 @@ class ExerciseDetector:
             {"name": "Left Side Raise", "duration": 15},
             {"name": "Right Side Raise", "duration": 15},
             {"name": "T Pose Hold", "duration": 15},
+            {"name": "Shoulder Rolls", "duration": 15},
             {"name": "Rest", "duration": 10},
         ]
 
@@ -38,6 +40,8 @@ class ExerciseDetector:
         self.last_feedback_update_time = 0.0
         self.cached_feedback = ""
 
+        self.shoulder_y_history = deque(maxlen=25)
+
     def request_start(self):
         self.start_requested = True
 
@@ -54,6 +58,7 @@ class ExerciseDetector:
         self.progress = 0.0
         self.last_feedback_update_time = 0.0
         self.cached_feedback = ""
+        self.shoulder_y_history = deque(maxlen=25)
 
     def get_current_step_name(self):
         if self.completed:
@@ -147,6 +152,7 @@ class ExerciseDetector:
             self.previous_landmarks = landmarks
             self.cached_feedback = ""
             self.last_feedback_update_time = 0.0
+            self.shoulder_y_history.clear()
 
             if self.current_step_index >= len(self.steps):
                 self.completed = True
@@ -164,6 +170,10 @@ class ExerciseDetector:
             return [{"type": "step_change", "confidence": 1.0}]
 
         movement_level = self._movement_level(landmarks)
+
+        left_shoulder = landmarks[poseLandmark.LEFT_SHOULDER]
+        right_shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
+        self.shoulder_y_history.append((left_shoulder.y + right_shoulder.y) / 2.0)
 
         if now - self.last_feedback_update_time >= self.feedback_update_interval:
             self.cached_feedback = self._feedback_for_step(step["name"], landmarks, movement_level)
@@ -257,6 +267,14 @@ class ExerciseDetector:
                 return "Stretch both arms outward"
             return "Make a T shape with your arms"
 
+        if step_name == "Shoulder Rolls":
+            rolling = self._shoulder_roll_good()
+            if rolling:
+                return "Great - keep rolling your shoulders"
+            if movement_level > 0.008:  # any visible shoulder motion detected
+                return "Roll in a full circle - up, back, down, forward"
+            return "Roll both shoulders backward in a circle"
+
         if step_name == "Rest":
             if movement_level < 0.008:
                 return "Nice - stay relaxed"
@@ -341,3 +359,14 @@ class ExerciseDetector:
             and right_elbow.x > right_shoulder.x + 0.05
         )
         return left_good and right_good
+
+    def _shoulder_roll_good(self):
+        if len(self.shoulder_y_history) < 10:  # need ~0.35s of frames before evaluating
+            return False
+        y_min = y_max = self.shoulder_y_history[0]
+        for y in self.shoulder_y_history:
+            if y < y_min:
+                y_min = y
+            if y > y_max:
+                y_max = y
+        return (y_max - y_min) > 0.025  # shoulders must rise/fall by ~2.5% of frame height
