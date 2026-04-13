@@ -12,12 +12,13 @@ def point_distance(a, b):
 
 class ExerciseDetector:
     def __init__(self):
-        # Shorter demo-friendly timings. Change these numbers if needed.
         self.steps = [
             {"name": "Overhead Reach", "duration": 15},
             {"name": "Left Side Raise", "duration": 15},
             {"name": "Right Side Raise", "duration": 15},
             {"name": "T Pose Hold", "duration": 15},
+            {"name": "Shoulder Rolls", "duration": 15},   # NEW
+            {"name": "Arm Circles", "duration": 15},       # NEW
             {"name": "Rest", "duration": 10},
         ]
 
@@ -180,7 +181,6 @@ class ExerciseDetector:
         right_shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
         center_x = (left_shoulder.x + right_shoulder.x) / 2.0
         shoulder_width = abs(right_shoulder.x - left_shoulder.x)
-
         return 0.38 < center_x < 0.62 and shoulder_width > 0.12
 
     def _movement_level(self, landmarks):
@@ -203,9 +203,9 @@ class ExerciseDetector:
         return total_motion / len(tracked_points)
 
     def _feedback_for_step(self, step_name, landmarks, movement_level):
+
         if step_name == "Overhead Reach":
             left_up, right_up = self._arms_overhead_flags(landmarks)
-
             if left_up and right_up:
                 return "Great - both arms are up"
             if left_up or right_up:
@@ -218,7 +218,6 @@ class ExerciseDetector:
             left_good = self._left_side_good(landmarks)
             right_up = self._right_arm_not_down(landmarks)
             left_partial = self._left_arm_partial(landmarks)
-
             if left_good:
                 return "Great - left arm is in position"
             if right_up:
@@ -233,7 +232,6 @@ class ExerciseDetector:
             right_good = self._right_side_good(landmarks)
             left_up = self._left_arm_not_down(landmarks)
             right_partial = self._right_arm_partial(landmarks)
-
             if right_good:
                 return "Great - right arm is in position"
             if left_up:
@@ -248,7 +246,6 @@ class ExerciseDetector:
             both_good = self._t_pose_good(landmarks)
             left_partial = self._left_arm_partial(landmarks)
             right_partial = self._right_arm_partial(landmarks)
-
             if both_good:
                 return "Great - hold both arms straight out"
             if left_partial or right_partial:
@@ -256,6 +253,22 @@ class ExerciseDetector:
             if movement_level > 0.012:
                 return "Stretch both arms outward"
             return "Make a T shape with your arms"
+
+        if step_name == "Shoulder Rolls":
+            good_roll = self._shoulder_roll_good(landmarks, movement_level)
+            if good_roll:
+                return "Nice - keep rolling your shoulders"
+            if movement_level > 0.010:
+                return "Make smooth circles with your shoulders"
+            return "Gently roll your shoulders forward and back"
+
+        if step_name == "Arm Circles":
+            good_circle = self._arm_circles_good(landmarks, movement_level)
+            if good_circle:
+                return "Great – keep making smooth circles"
+            if movement_level > 0.010:
+                return "Make wider circles with your arms"
+            return "Rotate your arms in a circular motion"
 
         if step_name == "Rest":
             if movement_level < 0.008:
@@ -269,7 +282,6 @@ class ExerciseDetector:
         right_wrist = landmarks[poseLandmark.RIGHT_WRIST]
         left_shoulder = landmarks[poseLandmark.LEFT_SHOULDER]
         right_shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
-
         left_up = left_wrist.y < left_shoulder.y - 0.04
         right_up = right_wrist.y < right_shoulder.y - 0.04
         return left_up, right_up
@@ -341,3 +353,58 @@ class ExerciseDetector:
             and right_elbow.x > right_shoulder.x + 0.05
         )
         return left_good and right_good
+
+    def _shoulder_roll_good(self, landmarks, movement_level):
+        left_shoulder = landmarks[poseLandmark.LEFT_SHOULDER]
+        right_shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
+        left_elbow = landmarks[poseLandmark.LEFT_ELBOW]
+        right_elbow = landmarks[poseLandmark.RIGHT_ELBOW]
+
+        if self.previous_landmarks is None:
+            return False
+
+        prev_left_shoulder = self.previous_landmarks[poseLandmark.LEFT_SHOULDER]
+        prev_right_shoulder = self.previous_landmarks[poseLandmark.RIGHT_SHOULDER]
+
+        left_dy = abs(left_shoulder.y - prev_left_shoulder.y)
+        right_dy = abs(right_shoulder.y - prev_right_shoulder.y)
+        avg_shoulder_vertical_motion = (left_dy + right_dy) / 2.0
+
+        left_elbow_close = abs(left_elbow.x - left_shoulder.x) < 0.10
+        right_elbow_close = abs(right_elbow.x - right_shoulder.x) < 0.10
+
+        enough_motion = movement_level > 0.006
+        enough_shoulder_vertical = avg_shoulder_vertical_motion > 0.004
+
+        return enough_motion and enough_shoulder_vertical and left_elbow_close and right_elbow_close
+
+    def _arm_circles_good(self, landmarks, movement_level):
+        left_wrist = landmarks[poseLandmark.LEFT_WRIST]
+        right_wrist = landmarks[poseLandmark.RIGHT_WRIST]
+        left_elbow = landmarks[poseLandmark.LEFT_ELBOW]
+        right_elbow = landmarks[poseLandmark.RIGHT_ELBOW]
+        left_shoulder = landmarks[poseLandmark.LEFT_SHOULDER]
+        right_shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
+
+        if self.previous_landmarks is None:
+            return False
+
+        prev_left_wrist = self.previous_landmarks[poseLandmark.LEFT_WRIST]
+        prev_right_wrist = self.previous_landmarks[poseLandmark.RIGHT_WRIST]
+
+        left_vertical = abs(left_wrist.y - prev_left_wrist.y)
+        right_vertical = abs(right_wrist.y - prev_right_wrist.y)
+
+        left_horizontal = abs(left_wrist.x - prev_left_wrist.x)
+        right_horizontal = abs(right_wrist.x - prev_right_wrist.x)
+
+        left_circle_motion = left_vertical + left_horizontal
+        right_circle_motion = right_vertical + right_horizontal
+
+        enough_motion = movement_level > 0.008
+        enough_circle = (left_circle_motion + right_circle_motion) / 2.0 > 0.010
+
+        left_elbow_extended = abs(left_elbow.y - left_shoulder.y) < 0.20
+        right_elbow_extended = abs(right_elbow.y - right_shoulder.y) < 0.20
+
+        return enough_motion and enough_circle and left_elbow_extended and right_elbow_extended
