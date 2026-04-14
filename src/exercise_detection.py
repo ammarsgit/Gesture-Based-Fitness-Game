@@ -283,11 +283,14 @@ class ExerciseDetector:
             )
 
         if step_name == "Left Side Raise":
-            if left_wrist.x < left_shoulder.x - 0.10 and right_wrist.y > right_shoulder.y - 0.02:
+            left_is_highest = self._is_highest_landmark(landmarks, poseLandmark.LEFT_WRIST)
+            right_is_highest = self._is_highest_landmark(landmarks, poseLandmark.RIGHT_WRIST)
+
+            if left_is_highest and not right_is_highest:
                 self.last_good_time = now
                 self._clear_pending_correction()
                 return "Good - left arm is in place", "good", "Good position"
-            if right_wrist.y <= right_shoulder.y - 0.02:
+            if right_is_highest:
                 return self._delayed_correction(
                     key="left_keep_right_down",
                     message="Keep your right arm down",
@@ -304,11 +307,14 @@ class ExerciseDetector:
             )
 
         if step_name == "Right Side Raise":
-            if right_wrist.x > right_shoulder.x + 0.10 and left_wrist.y > left_shoulder.y - 0.02:
+            right_is_highest = self._is_highest_landmark(landmarks, poseLandmark.RIGHT_WRIST)
+            left_is_highest = self._is_highest_landmark(landmarks, poseLandmark.LEFT_WRIST)
+
+            if right_is_highest and not left_is_highest:
                 self.last_good_time = now
                 self._clear_pending_correction()
                 return "Good - right arm is in place", "good", "Good position"
-            if left_wrist.y <= left_shoulder.y - 0.02:
+            if left_is_highest:
                 return self._delayed_correction(
                     key="right_keep_left_down",
                     message="Keep your left arm down",
@@ -413,6 +419,25 @@ class ExerciseDetector:
         left_shoulder = landmarks[poseLandmark.LEFT_SHOULDER]
         right_shoulder = landmarks[poseLandmark.RIGHT_SHOULDER]
         return left_wrist.y > left_shoulder.y - 0.02 and right_wrist.y > right_shoulder.y - 0.02
+
+    def _is_highest_landmark(self, landmarks, landmark_index, min_visibility=0.35, tolerance=0.015):
+        target = landmarks[landmark_index]
+        target_visibility = getattr(target, "visibility", 1.0)
+
+        if target_visibility < min_visibility:
+            return False
+
+        visible_y_values = [
+            lm.y
+            for lm in landmarks
+            if getattr(lm, "visibility", 1.0) >= min_visibility
+        ]
+
+        if not visible_y_values:
+            visible_y_values = [lm.y for lm in landmarks]
+
+        highest_y = min(visible_y_values)
+        return target.y <= highest_y + tolerance
 
     def _shoulder_roll_good(self, landmarks):
         if self.previous_landmarks is None:
