@@ -283,14 +283,14 @@ class ExerciseDetector:
             )
 
         if step_name == "Left Side Raise":
-            left_is_highest = self._is_highest_landmark(landmarks, poseLandmark.LEFT_WRIST)
-            right_is_highest = self._is_highest_landmark(landmarks, poseLandmark.RIGHT_WRIST)
+            left_raised = right_wrist.y < right_shoulder.y + 0.05
+            right_down = left_wrist.y > left_shoulder.y - 0.02
 
-            if left_is_highest and not right_is_highest:
+            if left_raised and right_down:
                 self.last_good_time = now
                 self._clear_pending_correction()
                 return "Good - left arm is in place", "good", "Good position"
-            if right_is_highest:
+            if not right_down:
                 return self._delayed_correction(
                     key="left_keep_right_down",
                     message="Keep your right arm down",
@@ -307,14 +307,14 @@ class ExerciseDetector:
             )
 
         if step_name == "Right Side Raise":
-            right_is_highest = self._is_highest_landmark(landmarks, poseLandmark.RIGHT_WRIST)
-            left_is_highest = self._is_highest_landmark(landmarks, poseLandmark.LEFT_WRIST)
+            right_raised = left_wrist.y < left_shoulder.y + 0.05
+            left_down = right_wrist.y > right_shoulder.y - 0.02
 
-            if right_is_highest and not left_is_highest:
+            if right_raised and left_down:
                 self.last_good_time = now
                 self._clear_pending_correction()
                 return "Good - right arm is in place", "good", "Good position"
-            if left_is_highest:
+            if not left_down:
                 return self._delayed_correction(
                     key="right_keep_left_down",
                     message="Keep your left arm down",
